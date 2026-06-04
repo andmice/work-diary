@@ -265,6 +265,18 @@ body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; backgrou
   padding: 0;
 }
 .event:hover .event-del { display: flex; }
+.event-edit {
+  display: none;
+  width: 14px; height: 14px;
+  background: rgba(52,152,219,0.3);
+  color: white;
+  border: none; border-radius: 50%;
+  font-size: 8px; cursor: pointer;
+  flex-shrink: 0;
+  align-items: center; justify-content: center;
+  line-height: 1; padding: 0;
+}
+.event:hover .event-edit { display: flex; }
 .event:hover { opacity: 0.85; }
 .event.done { opacity: 0.4; }
 .event.done .event-text { text-decoration: line-through; color: #999; }
@@ -512,6 +524,19 @@ body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; backgrou
 .modal-btns button { flex: 1; padding: 8px; border: none; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; }
 .modal-del { background: #e74c3c; color: white; }
 .modal-cancel { background: #ecf0f1; color: #555; }
+
+/* ── 수정 모달 ── */
+.edit-modal { width: 300px; }
+.edit-modal h3 { font-size: 14px; margin-bottom: 14px; }
+.edit-field { margin-bottom: 10px; }
+.edit-field label { font-size: 11px; color: #888; display: block; margin-bottom: 4px; }
+.edit-field input, .edit-field select {
+  width: 100%; border: 1px solid #ddd; border-radius: 6px;
+  padding: 7px 10px; font-size: 13px; font-family: inherit; outline: none;
+}
+.edit-field input:focus, .edit-field select:focus { border-color: #2c3e50; }
+.btn-save { background: #2c3e50; color: white; }
+.btn-save:hover { background: #34495e; }
 </style>
 </head>
 <body>
@@ -589,6 +614,36 @@ body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; backgrou
   <div class="chat-input-area">
     <input class="chat-input" id="chatInput" placeholder="일정 입력..." onkeydown="if(event.key==='Enter')sendMsg()">
     <button class="send-btn" onclick="sendMsg()">➤</button>
+  </div>
+</div>
+
+<!-- 수정 모달 -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal edit-modal">
+    <h3>✏️ 일정 수정</h3>
+    <div class="edit-field">
+      <label>날짜</label>
+      <input type="date" id="editDate">
+    </div>
+    <div class="edit-field">
+      <label>분류</label>
+      <select id="editType">
+        <option value="unique">유니크플랜</option>
+        <option value="and">앤드마이스</option>
+        <option value="calorie">칼로리바</option>
+        <option value="ganpa">간빠맥주</option>
+        <option value="other">그외</option>
+        <option value="personal">개인일정</option>
+      </select>
+    </div>
+    <div class="edit-field">
+      <label>내용</label>
+      <input type="text" id="editText" placeholder="내용 입력...">
+    </div>
+    <div class="modal-btns">
+      <button class="btn-confirm btn-save" onclick="confirmEdit()">저장</button>
+      <button class="modal-cancel" onclick="closeEditModal()">취소</button>
+    </div>
   </div>
 </div>
 
@@ -676,6 +731,7 @@ function renderCalendar() {
           onclick="handleEventClick(event, '${dateStr}', ${idx})">
         <span class="event-badge badge-${ev.type}">${m.short}</span>
         <span class="event-text">${esc(ev.text)}</span>
+        <button class="event-edit" onclick="openEdit(event,'${dateStr}',${idx})">✏</button>
         <button class="event-del" onclick="askDelete(event,'${dateStr}',${idx})">✕</button>
       </div>`;
     }).join('');
@@ -736,6 +792,7 @@ function renderList() {
           onclick="toggleDone('${dateStr}',${idx})">
         <span class="list-event-badge" style="background:${m.color}">${m.short}</span>
         <span class="list-event-text">${esc(ev.text)}</span>
+        <button class="list-del-btn" style="background:#ebf5fb;color:#3498db;margin-right:2px" onclick="openEdit(event,'${dateStr}',${idx})">✏</button>
         <button class="list-del-btn" onclick="askDelete(event,'${dateStr}',${idx})">✕</button>
       </div>`;
     });
@@ -753,6 +810,7 @@ function renderList() {
 // ── 이벤트 클릭 (완료 토글 — 삭제 버튼 제외) ──
 function handleEventClick(e, dateStr, idx) {
   if (e.target.classList.contains('event-del')) return;
+  if (e.target.classList.contains('event-edit')) return;
   toggleDone(dateStr, idx);
 }
 
@@ -762,6 +820,52 @@ function toggleDone(dateStr, idx) {
   events[dateStr][idx].done = !events[dateStr][idx].done;
   saveEvents(events);
   render();
+}
+
+// ── 수정 ──
+let pendingEdit = null;
+function openEdit(e, dateStr, idx) {
+  e.stopPropagation();
+  const events = loadEvents();
+  const ev = events[dateStr]?.[idx];
+  if (!ev) return;
+  pendingEdit = { dateStr, idx };
+  document.getElementById('editDate').value = dateStr;
+  document.getElementById('editType').value = ev.type;
+  document.getElementById('editText').value = ev.text;
+  document.getElementById('editModal').classList.add('show');
+}
+function confirmEdit() {
+  if (!pendingEdit) return;
+  const { dateStr, idx } = pendingEdit;
+  const newDate = document.getElementById('editDate').value;
+  const newType = document.getElementById('editType').value;
+  const newText = document.getElementById('editText').value.trim();
+  if (!newText) return;
+
+  const events = loadEvents();
+  const ev = events[dateStr]?.[idx];
+  if (!ev) return;
+
+  // 날짜가 바뀌면 기존 항목 삭제 후 새 날짜에 추가
+  if (newDate !== dateStr) {
+    events[dateStr].splice(idx, 1);
+    if (!events[dateStr].length) delete events[dateStr];
+    if (!events[newDate]) events[newDate] = [];
+    events[newDate].push({ type: newType, text: newText, done: ev.done });
+  } else {
+    events[dateStr][idx] = { type: newType, text: newText, done: ev.done };
+  }
+
+  saveEvents(events);
+  const [y, m] = newDate.split('-').map(Number);
+  currentYear = y; currentMonth = m - 1;
+  render();
+  closeEditModal();
+}
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('show');
+  pendingEdit = null;
 }
 
 // ── 삭제 ──
