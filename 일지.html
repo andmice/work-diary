@@ -239,6 +239,7 @@ body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; backgrou
   display: flex;
   align-items: center;
   gap: 3px;
+  cursor: grab;
   margin-bottom: 2px;
   border-radius: 3px;
   padding: 1px 4px 1px 2px;
@@ -288,6 +289,8 @@ body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; backgrou
 }
 .event:hover .event-edit { display: flex; }
 .event:hover { opacity: 0.85; }
+.event.dragging { opacity: 0.35; cursor: grabbing; }
+.day-cell.drag-over { background: #e8f4fd !important; outline: 2px dashed #3498db; outline-offset: -2px; }
 .event.done { opacity: 0.4; }
 .event.done .event-text { text-decoration: line-through; color: #999; }
 
@@ -911,6 +914,9 @@ function renderCalendar() {
       const m = TYPE_META[ev.type] || TYPE_META.other;
       return `<div class="event ev-${ev.type}${ev.done?' done':''}"
           data-date="${dateStr}" data-idx="${idx}"
+          draggable="true"
+          ondragstart="dragStart(event,'${dateStr}',${idx})"
+          ondragend="dragEnd(event)"
           onclick="handleEventClick(event, '${dateStr}', ${idx})">
         <span class="event-badge badge-${ev.type}">${m.short}</span>
         <span class="event-text">${esc(ev.text)}</span>
@@ -924,7 +930,12 @@ function renderCalendar() {
     }
 
     const journalCls = hasJournal ? ' has-journal' : '';
-    html += `<div class="${cls}${journalCls}" ondblclick="openJournal('${dateStr}')">
+    html += `<div class="${cls}${journalCls}"
+        ondblclick="openJournal('${dateStr}')"
+        ondragover="dragOver(event)"
+        ondragenter="dragEnter(event)"
+        ondragleave="dragLeave(event)"
+        ondrop="dragDrop(event,'${dateStr}')">
       <div class="day-num">${d}</div>
       ${evHTML}
       ${hasJournal ? `<div class="journal-dot" title="일지 있음"></div>` : ''}
@@ -1269,6 +1280,54 @@ function dateKey(y, m, d) {
 }
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── 드래그앤드롭 ──
+let dragSrc = null; // { dateStr, idx }
+
+function dragStart(e, dateStr, idx) {
+  dragSrc = { dateStr, idx };
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', JSON.stringify(dragSrc));
+}
+function dragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+function dragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+}
+function dragEnter(e) {
+  e.preventDefault();
+  const cell = e.currentTarget.closest('.day-cell');
+  if (cell && !cell.classList.contains('other-month')) cell.classList.add('drag-over');
+}
+function dragLeave(e) {
+  const cell = e.currentTarget.closest ? e.currentTarget : e.target.closest('.day-cell');
+  if (cell && !e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+}
+function dragDrop(e, targetDate) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!dragSrc || dragSrc.dateStr === targetDate) { dragSrc = null; return; }
+
+  const events = loadEvents();
+  const srcList = events[dragSrc.dateStr];
+  if (!srcList) return;
+
+  const [moved] = srcList.splice(dragSrc.idx, 1);
+  if (!srcList.length) delete events[dragSrc.dateStr];
+
+  if (!events[targetDate]) events[targetDate] = [];
+  events[targetDate].push(moved);
+
+  saveEvents(events);
+  dragSrc = null;
+  render();
 }
 
 // ── 날짜 전체보기 ──
